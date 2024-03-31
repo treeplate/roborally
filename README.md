@@ -22,9 +22,9 @@ use `flutter run` to install the client on all the client devices.<br>
 In the `roborally_server` directory, run `flutter run` to run the server on the server device.<br>
 
 ### Server device instructions
-Pick a board, some number of flags, and then drag the flags onto the board and then press "Ready". You don't need to do anything else on the server device, but it should still be visible to everyone playing.
+Pick a board, and then drag as many flags as you want onto the board and then press "Done". You don't need to do anything else on the server device, but it should still be visible to everyone playing.
 ### Client device instructions
-Launch the `roborally_client` app. Select the server device from the list of devices in the app, and press "Join". Pick a name and a robot, and then press "Ready".
+Launch the `roborally_client` app. Select the server device from the list of devices in the app. Pick a name and a color, and then press "Join Server".
 
 ## During the game
-[This document](https://docs.google.com/document/d/14qW9BK9GCU-Qn23bxzlLt_nyWVvkkI0DYJzm_94JgFk/edit?usp=sharing) explains how to play the game.
+[This document](https://docs.google.com/document/d/14qW9BK9GCU-Qn23bxzlLt_nyWVvkkI0DYJzm_94JgFk/edit?usp=sharing) explains how to play the game. It may be helpful to have printed out.

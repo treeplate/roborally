@@ -1,4 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'packetbuffer.dart';
+import 'players.dart';
 
 void main() {
   runApp(const MyApp());
@@ -7,119 +15,517 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'RoboRally Client',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: Center(
+        child: Container(
+          width: 700,
+          height: 350,
+          decoration: BoxDecoration(
+            color: Colors.brown[300],
+            border: Border.all(color: Colors.brown, width: 10),
+          ),
+          child: const MyHomePage(),
+        ),
+      ),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  const MyHomePage({super.key});
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
+  String tempMessage = 'loading...';
+  Socket? server;
+  List<(String, String)>? servers;
+  bool accepted = false;
+  bool joined = false;
+  List<int>? programCardHand;
+  List<int?> programCardsPlaced = List.filled(5, null);
+  static const Color defaultColor = Colors.lightBlue;
+  Color currentSelectedColor = defaultColor;
+  String currentName = '';
+  List<Player>? players;
+  late TabController controller = TabController(length: 0, vsync: this);
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  @override
+  void initState() {
+    rootBundle.loadString('../servers.cfg').then((value) {
+      setState(() {
+        servers = value.split('\n').map((e) {
+          List<String> parts = e.split(' ').toList();
+          return (parts[0], parts.skip(1).join(' '));
+        }).toList();
+      });
     });
+    rootBundle.loadString('../program_cards.txt').then((value) {
+      setState(() {
+        programCards = value.split('\n').map((e) {
+          List<String> parts = e.split(' ').toList();
+          return ProgramCardData(
+            int.parse(parts[0]),
+            ProgramCardType.values.singleWhere((e) => e.name == parts[1]),
+          );
+        }).toList();
+      });
+    });
+    super.initState();
+  }
+
+  Future<dynamic> connectionError(String message) {
+    quitServer();
+    return showDialog(
+      context: context,
+      builder: (context) {
+        return BoilerplateDialog(
+          title: 'Connection error',
+          children: [
+            Text(message),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text('Return to start menu'),
+            )
+          ],
+        );
+      },
+    );
+  }
+
+  int? currentPacketLength;
+
+  void handlePacket(Uint8List event, PacketBuffer packets) {
+    return setState(() {
+      if (!accepted) {
+        if (event.length != 1) {
+          connectionError(
+            'Bad protocol: starting message too ${event.isEmpty ? 'short' : 'long'}',
+          );
+          return;
+        }
+        if (event.single == 1) {
+          accepted = true;
+          return;
+        }
+        if (event.single == 0) {
+          quitServer();
+          showDialog(
+            context: context,
+            builder: (context) {
+              return BoilerplateDialog(
+                title: 'Room full',
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    child: const Text(
+                      'Return to start menu',
+                    ),
+                  )
+                ],
+              );
+            },
+          );
+          return;
+        }
+        connectionError(
+          'Bad protocol: starting message ${event.single}, expected 0 or 1',
+        );
+        return;
+      }
+      packets.add(event);
+      while (packets.available >= 1) {
+        currentPacketLength ??= packets.readUint8();
+        if (packets.available >= currentPacketLength! + 1) {
+          currentPacketLength = null;
+          int messageType = packets.readUint8();
+          switch (messageType) {
+            case 0:
+              print('case0');
+              int playerCount = packets.readUint8();
+              int opc = players?.length ?? -1;
+              players = [];
+              while (players!.length < playerCount) {
+                Player player = parsePlayer(packets);
+                players!.add(player);
+              }
+
+              if (opc != playerCount) {
+                controller = TabController(length: playerCount, vsync: this);
+              }
+              setState(() {});
+            case 1:
+              print('case1');
+              int index = packets.readUint8();
+              Player player = parsePlayer(packets);
+              setState(() {
+                if (index > (players?.length ?? -1)) {
+                  connectionError(
+                    'Bad protocol: player index more than length of current player list',
+                  );
+                } else if (index == players!.length) {
+                  players!.add(player);
+                  controller = TabController(length: index + 1, vsync: this);
+                } else {
+                  players![index] = player;
+                }
+              });
+            case 2:
+              print('case2');
+              setState(() {
+                int programCardCount = packets.readUint8();
+                programCardHand =
+                    packets.readUint8List(programCardCount).toList();
+                programCardsPlaced = List.filled(5, null);
+              });
+            default:
+              connectionError(
+                'Bad protocol: invalid message type $messageType',
+              );
+          }
+        } else {
+          break;
+        }
+      }
+    });
+  }
+
+  Player parsePlayer(PacketBuffer packets) {
+    int currentFlag = packets.readUint8();
+    int status = packets.readUint8();
+    Uint8List programCards = packets.readUint8List(5);
+    int optionCardCount = packets.readUint8();
+    Uint8List optionCards = packets.readUint8List(optionCardCount);
+    int nameLength = packets.readUint8();
+    String name = String.fromCharCodes(packets.readUint8List(nameLength));
+    Color color = Color(packets.readUint32());
+    Player player = Player(
+      currentFlag,
+      LifeCount.values[status & 0x3],
+      DamageCount.values[(status >> 4)],
+      PowerDownStatus.values[(status >> 2) & 0x3],
+      programCards,
+      optionCards,
+      name,
+      color,
+    );
+    return player;
+  }
+
+  void sendMessage(List<int> message, int messageType) {
+    server!.add([message.length, messageType, ...message]);
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+    if (servers == null) return const Text('loading servers.cfg...');
+    if (server == null) {
+      return ListView(
+        children: [
+          const Center(
+            child: Text('Join Server',
+                style: TextStyle(inherit: false, fontSize: 30)),
+          ),
+          const Divider(),
+          ...servers!.expand(
+            (e) => [
+              const Padding(padding: EdgeInsets.only(top: 20)),
+              OutlinedButton(
+                onPressed: () {
+                  Socket.connect(e.$1, 2024).then(
+                    (value) {
+                      PacketBuffer packets = PacketBuffer();
+                      value.listen(
+                        (event) {
+                          if (server == null) throw StateError('unreachable');
+                          handlePacket(event, packets);
+                        },
+                        onDone: () {
+                          setState(quitServer);
+                          showDialog(
+                            context: context,
+                            builder: (context) {
+                              return BoilerplateDialog(
+                                title: 'Disconnected from server',
+                                children: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                    },
+                                    child: const Text('Return to start menu'),
+                                  )
+                                ],
+                              );
+                            },
+                          );
+                        },
+                      );
+                      setState(() {
+                        accepted = false;
+                        server = value;
+                      });
+                    },
+                    onError: (error) {
+                      showDialog(
+                        context: context,
+                        builder: (context) {
+                          return BoilerplateDialog(
+                            title: 'Failed to connect to ${e.$2}',
+                            children: [
+                              Text('Error when connecting to ${e.$1}: $error'),
+                              TextButton(
+                                  onPressed: () {
+                                    Navigator.pop(context);
+                                  },
+                                  child: const Text('Return to start menu'))
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+                style: ButtonStyle(
+                  backgroundColor: WidgetStateProperty.resolveWith<Color?>(
+                    (Set<WidgetState> states) {
+                      return Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.5);
+                    },
+                  ),
+                ),
+                child: Text(
+                  e.$2,
+                  style: const TextStyle(inherit: false),
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+    if (!accepted) return const CircularProgressIndicator();
+    if (!joined) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            color: currentSelectedColor,
+            child: Text(
+              currentName,
+              style: TextStyle(
+                color: Color(~currentSelectedColor.value).withAlpha(255),
+                inherit: false,
+                fontSize: 30,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 175,
+            height: 175,
+            child: ColorWheelPicker(
+              color: currentSelectedColor,
+              onChanged: (color) {
+                setState(() {
+                  currentSelectedColor = color;
+                });
+              },
+              onWheel: (value) {},
+            ),
+          ),
+          Material(
+            child: TextField(
+              onChanged: (value) {
+                setState(() {
+                  currentName = value;
+                });
+              },
+            ),
+          ),
+          OutlinedButton(
+            onPressed: () {
+              List<int> utf8Name = utf8.encode(currentName);
+              server!.add(
+                [
+                  utf8Name.length,
+                  ...utf8Name,
+                  currentSelectedColor.alpha,
+                  currentSelectedColor.red,
+                  currentSelectedColor.green,
+                  currentSelectedColor.blue
+                ],
+              );
+              setState(() {
+                joined = true;
+              });
+            },
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.resolveWith<Color?>(
+                (Set<WidgetState> states) {
+                  return Theme.of(context).colorScheme.primary.withOpacity(0.5);
+                },
+              ),
+            ),
+            child: const Text('Join server'),
+          )
+        ],
+      );
+    }
+    if (players == null) {
+      return const Center(
+          child: Text(
+        'Waiting for server...',
+        style: TextStyle(inherit: false, fontSize: 30),
+      ));
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: TabBarView(
+            controller: controller,
+            children: [
+              ...players!.map(
+                (e) => PlayerDataWidget(e),
+              ),
+            ],
+          ),
+        ),
+        if (programCardHand != null)
+          Expanded(
+            child: Column(
+              children: [
+                OutlinedButton(
+                  onPressed: programCardsPlaced.every((e) => e != null)
+                      ? () {
+                          sendMessage([], 2);
+                          setState(() {
+                            programCardHand = null;
+                          });
+                        }
+                      : null,
+                  child: const Text(
+                    'Submit program',
+                    style: TextStyle(
+                      color: Colors.black,
+                      inherit: false,
+                      fontSize: 25,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Row(
+                    children: [
+                      for (int i = 0; i < programCardsPlaced.length; i++)
+                        DragTarget(
+                          builder: (context, accepted, rejected) {
+                            return programCardsPlaced[i] == null
+                                ? const ProgramCardWidget(0x80)
+                                : Draggable(
+                                    feedback: ProgramCardWidget(
+                                        programCardsPlaced[i]!),
+                                    data: programCardsPlaced[i],
+                                    childWhenDragging:
+                                        const ProgramCardWidget(0x80),
+                                    child: ProgramCardWidget(
+                                        programCardsPlaced[i]!),
+                                  );
+                          },
+                          onAcceptWithDetails: (details) {
+                            if (programCardsPlaced[i] != null) return;
+                            if (!programCardHand!.remove(details.data as int)) {
+                              return;
+                            }
+                            setState(() {
+                              programCardsPlaced[i] = details.data as int;
+                            });
+                            sendMessage([i, details.data as int], 0);
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 100,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      for (int i = 0; i < programCardHand!.length; i++)
+                        DragTarget(
+                          builder: (context, accepted, rejected) {
+                            return Draggable(
+                              feedback: ProgramCardWidget(programCardHand![i]),
+                              data: programCardHand![i],
+                              childWhenDragging: const ProgramCardWidget(0x80),
+                              child: ProgramCardWidget(programCardHand![i]),
+                            );
+                          },
+                          onAcceptWithDetails: (details) {
+                            int index =
+                                programCardsPlaced.indexOf(details.data as int);
+                            if (index == -1) return;
+                            setState(() {
+                              programCardsPlaced[index] = null;
+                              programCardHand!.add(details.data as int);
+                            });
+                            sendMessage([index], 1);
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          const Expanded(child: Placeholder()),
+      ],
+    );
+  }
+
+  void quitServer() {
+    server?.destroy();
+    server = null;
+    accepted = false;
+    joined = false;
+    players = null;
+    programCardHand = null;
+  }
+}
+
+class BoilerplateDialog extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const BoilerplateDialog(
+      {super.key, required this.title, required this.children});
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
+            Text(title),
+            const SizedBox(height: 15),
+            ...children,
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }

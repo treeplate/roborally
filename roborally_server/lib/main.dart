@@ -1,4 +1,14 @@
+// ignore_for_file: avoid_print
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:roborally_server/board_renderer.dart';
+import 'packetbuffer.dart';
 
 void main() {
   runApp(const MyApp());
@@ -7,119 +17,801 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'RoboRally Server',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  const MyHomePage({super.key});
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+enum PowerDownStatus { notPoweredDown, nextTurnPoweredDown, poweredDown }
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+enum Rotation { up, right, down, left }
+
+(int, int) rotationToOffset(Rotation r) {
+  switch (r) {
+    case Rotation.up:
+      return (0, -1);
+    case Rotation.right:
+      return (1, 0);
+    case Rotation.down:
+      return (0, 1);
+    case Rotation.left:
+      return (-1, 0);
+  }
+}
+
+class Player {
+  Socket socket;
+  late final String address;
+  bool connected = true;
+  bool submittedProgramCards = true;
+  int life = 3;
+  int damage = 0;
+  double movementT = 0;
+  PowerDownStatus powerDownStatus = PowerDownStatus.notPoweredDown;
+  List<int> programCardHand = [];
+  final List<int> optionCards = [];
+  final List<int?> programCards = List.filled(5,
+      null); // most significant bit = 0: visible to everyone; most significant bit = 1: hidden to other players
+  String? name;
+  Color? color;
+  Rotation rotation = Rotation.up;
+  late int xPosition;
+  late int yPosition;
+  late int archiveMarkerPositionX = xPosition;
+  late int archiveMarkerPositionY = yPosition;
+  int currentFlag = 0;
+  bool dead = false;
+
+  Map<Player, (int, int, int)> getMovementResult(
+      int registerPhase, Iterable<Player> allActivePlayers) {
+    int xDelta;
+    int yDelta;
+    int rotationDelta;
+    switch (programCardsData[programCards[registerPhase - 1]! % 0x80].type) {
+      case ProgramCardType.move1:
+        xDelta = rotationToOffset(rotation).$1;
+        yDelta = rotationToOffset(rotation).$2;
+        rotationDelta = 0;
+      case ProgramCardType.move2:
+        xDelta = rotationToOffset(rotation).$1 * 2;
+        yDelta = rotationToOffset(rotation).$2 * 2;
+        rotationDelta = 0;
+      case ProgramCardType.move3:
+        xDelta = rotationToOffset(rotation).$1 * 3;
+        yDelta = rotationToOffset(rotation).$2 * 3;
+        rotationDelta = 0;
+      case ProgramCardType.backup:
+        xDelta = -rotationToOffset(rotation).$1;
+        yDelta = -rotationToOffset(rotation).$2;
+        rotationDelta = 0;
+      case ProgramCardType.turncw:
+        xDelta = 0;
+        yDelta = 0;
+        rotationDelta = 1;
+      case ProgramCardType.turnccw:
+        xDelta = 0;
+        yDelta = 0;
+        rotationDelta = -1;
+      case ProgramCardType.uturn:
+        xDelta = 0;
+        yDelta = 0;
+        rotationDelta = 2;
+    }
+    Map<Player, (int, int, int)> deltas = {
+      this: (xDelta, yDelta, rotationDelta)
+    };
+    for (Player player in allActivePlayers) {
+      if(player == this) continue;
+      if (player.yPosition == yPosition &&
+          player.xPosition < xPosition &&
+          player.xPosition >= xPosition + xDelta) {
+        deltas[player] = (xPosition + xDelta - 1 - player.xPosition, 0, 0);
+      }
+      if (player.yPosition == yPosition &&
+          player.xPosition > xPosition &&
+          player.xPosition <= xPosition + xDelta) {
+        deltas[player] = (xPosition + xDelta + 1 - player.xPosition, 0, 0);
+      }
+      if (player.xPosition == xPosition &&
+          player.yPosition < yPosition &&
+          player.yPosition >= yPosition + yDelta) {
+        deltas[player] = (0, yPosition + yDelta - 1 - player.yPosition, 0);
+      }
+      if (player.xPosition == xPosition &&
+          player.yPosition > yPosition &&
+          player.yPosition <= yPosition + yDelta) {
+        deltas[player] = (0, yPosition + yDelta + 1 - player.yPosition, 0);
+      }
+    }
+    return deltas;
+  }
+
+  void die() {
+    dead = true;
+    life--;
+  }
+
+  @override
+  String toString() => name ?? address;
+
+  Player(this.socket) {
+    address = socket.address.address;
+  }
+
+  bool active() =>
+      powerDownStatus != PowerDownStatus.poweredDown &&
+      !dead &&
+      life > 0 &&
+      connected &&
+      color != null;
+
+  void move(Map<Player, (int, int, int)> moveresult) {
+    for (Player player in moveresult.keys) {
+      player.xPosition += moveresult[player]!.$1;
+      player.yPosition += moveresult[player]!.$2;
+      player.rotation =
+          Rotation.values[(player.rotation.index + moveresult[player]!.$3) % 4];
+    }
+  }
+}
+
+enum ProgramCardType { move1, move2, move3, backup, turncw, turnccw, uturn }
+
+class ProgramCardData {
+  final int priority;
+  final ProgramCardType type;
+
+  ProgramCardData(this.priority, this.type);
+}
+
+late List<ProgramCardData> programCardsData;
+
+class Laser {
+  final int xPosition;
+  final int yPosition;
+  final Rotation rotation;
+  final int laserCount;
+
+  Laser(this.laserCount,
+      {required this.xPosition,
+      required this.yPosition,
+      required this.rotation});
+}
+
+class Belt {
+  final int positionX;
+  final int positionY;
+  final bool express;
+  final BeltDirectionType type;
+  final Rotation rotation;
+
+  Belt(
+      {required this.positionX,
+      required this.positionY,
+      required this.express,
+      required this.type,
+      required this.rotation});
+}
+
+class Gear {
+  final int positionX;
+  final int positionY;
+  final bool clockwise;
+
+  Gear(
+      {required this.positionX,
+      required this.positionY,
+      required this.clockwise});
+}
+
+class Pusher {
+  final int positionX;
+  final int positionY;
+  final bool even;
+
+  Pusher(
+      {required this.positionX, required this.positionY, required this.even});
+}
+
+class Board {
+  final int width;
+  final int height;
+  final List<Laser> lasers;
+  final List<Belt> belts;
+  final List<Gear> gears;
+  final List<Pusher> pushers;
+  final List<Wrench> wrenches;
+  final List<Flag> flags;
+  final List<(int, int)> spawnPositions;
+
+  Board(this.spawnPositions,
+      {required this.width,
+      required this.height,
+      required this.lasers,
+      required this.belts,
+      required this.pushers,
+      required this.gears,
+      required this.wrenches,
+      required this.flags});
+}
+
+class _MyHomePageState extends State<MyHomePage>
+    with SingleTickerProviderStateMixin {
+  List<Player> players = [];
+  Board? board = Board(
+    [(2, 2), (4, 4)],
+    width: 5,
+    height: 5,
+    lasers: [],
+    belts: [],
+    gears: [],
+    wrenches: [],
+    pushers: [],
+    flags: [(positionX: 2, positionY: 3, number: 1)],
+  );
+  bool gameStarted = false;
+  late final List<int> allProgramCards;
+  late List<int> programCards;
+  Random random = Random();
+  Player? lastMovedPlayer;
+  Map<Player, (int, int, int)> currentMoveDeltas = {};
+
+  @override
+  void initState() {
+    createTicker(tick).start();
+    rootBundle.loadString('../program_cards.txt').then((v) {
+      allProgramCards = List.generate(v.split('\n').length, (i) => i);
+      programCards = allProgramCards.toList()..shuffle(random);
+      programCardsData = v.split('\n').map((e) {
+        List<String> parts = e.split(' ').toList();
+        return ProgramCardData(
+          int.parse(parts[0]),
+          ProgramCardType.values.singleWhere((e) => e.name == parts[1]),
+        );
+      }).toList();
     });
+    runZonedGuarded(() {
+      ServerSocket.bind(InternetAddress.anyIPv4, 2024).then(
+        (ServerSocket value) {
+          value.listen(
+            (Socket socket) {
+              Player player = Player(socket);
+              socket.add([
+                board == null || board!.spawnPositions.length > players.length
+                    ? 1
+                    : 0
+              ]); // 1 - still room; 0 - room full
+              setState(() {
+                players.add(player);
+              });
+              PacketBuffer packets = PacketBuffer();
+              int? nameLength;
+              int? currentPacketLength;
+              socket.listen(
+                (Uint8List event) {
+                  packets.add(event);
+                  nameLength ??= packets.readUint8();
+                  if (player.color == null &&
+                      packets.available >= nameLength! + 4) {
+                    player = newPlayer(player, packets, nameLength, socket);
+                    return;
+                  }
+                  currentPacketLength ??= packets.readUint8();
+                  if (packets.available >= currentPacketLength! + 1) {
+                    currentPacketLength = null;
+                    int messageType = packets.readUint8();
+                    switch (messageType) {
+                      case 0:
+                        if (player.submittedProgramCards) {
+                          print('0.a');
+                          return;
+                        }
+                        int index = packets.readUint8();
+                        int programCard = packets.readUint8();
+                        if (index > 4) {
+                          print('0.b');
+                          return;
+                        }
+                        if (!player.programCardHand.contains(programCard)) {
+                          print('0.c');
+                          return;
+                        }
+                        player.programCardHand.remove(programCard);
+                        player.programCards[index] = programCard | 0x80;
+                        resendPlayer(player);
+                      case 1:
+                        if (player.submittedProgramCards) {
+                          print('1.a');
+                          return;
+                        }
+                        int index = packets.readUint8();
+                        if (index > 4) {
+                          print('1.b');
+                          return;
+                        }
+                        int? programCard = player.programCards[index];
+                        if (programCard == null) {
+                          print('1.c');
+                          return;
+                        }
+                        if (programCard & 0x80 == 0) {
+                          print('1.d');
+                          return;
+                        }
+                        player.programCardHand.add(programCard % 0x80);
+                        player.programCards[index] = null;
+                        resendPlayer(player);
+                      case 2:
+                        if (player.submittedProgramCards) {
+                          print('2.a');
+                          return;
+                        }
+                        if (player.programCards.any((e) => e == null)) {
+                          print('2.b');
+                          return;
+                        }
+                        player.programCardHand = [];
+                        player.submittedProgramCards = true;
+                        if (players
+                            .every((player) => player.submittedProgramCards)) {
+                          startRunPhase();
+                        }
+                      default:
+                        packets.readUint8List(currentPacketLength!);
+                    }
+                  }
+                },
+                onError: (e) {
+                  setState(() {
+                    if (player.name == null) {
+                      players.remove(player);
+                      sendMessage(
+                        socket,
+                        [
+                          players.length,
+                          ...players
+                              .map<List<int>>(encodePlayer)
+                              .expand((element) => element),
+                        ],
+                        0,
+                      );
+                    }
+                    player.connected = false;
+                  });
+                },
+                onDone: () {
+                  setState(() {
+                    if (player.name == null) {
+                      players.remove(player);
+                      sendMessage(
+                        socket,
+                        [
+                          players.length,
+                          ...players
+                              .map<List<int>>(encodePlayer)
+                              .expand((element) => element),
+                        ],
+                        0,
+                      );
+                    }
+                    player.connected = false;
+                  });
+                },
+              );
+            },
+          );
+        },
+      );
+    }, (e, st) {
+      print(e);
+    });
+    super.initState();
+  }
+
+  Player newPlayer(
+      Player player, PacketBuffer packets, int? nameLength, Socket socket) {
+    setState(() {
+      player.name = utf8.decode(packets.readUint8List(nameLength!));
+      player.color = Color(packets.readUint32());
+      Player? newPlayer;
+      for (Player player2 in players) {
+        if (!player2.connected && player.name == player2.name) {
+          player2.socket = player.socket;
+          newPlayer = player2;
+          break;
+        }
+      }
+      if (newPlayer != null) {
+        players.remove(player);
+        player = newPlayer;
+      } else if (gameStarted) {
+        player.xPosition = board!.spawnPositions[players.indexOf(player)].$1;
+        player.yPosition = board!.spawnPositions[players.indexOf(player)].$2;
+      }
+    });
+    sendMessage(
+      socket,
+      [
+        players.length,
+        ...players.map<List<int>>(encodePlayer).expand((element) => element),
+      ],
+      0,
+    );
+    resendPlayer(player);
+    return player;
+  }
+
+  void resendPlayer(Player player) {
+    List<int> message = [players.indexOf(player), ...encodePlayer(player)];
+    for (Player otherPlayer in players) {
+      if (otherPlayer.connected && otherPlayer.color != null) {
+        sendMessage(otherPlayer.socket, message, 1);
+      }
+    }
+  }
+
+  Player? winner;
+
+  List<int> encodePlayer(Player e) => [
+        e.currentFlag,
+        (e.damage << 4) + (e.powerDownStatus.index << 2) + e.life,
+        ...e.programCards.map(
+          (e) => e == null
+              ? 0x80
+              : e & 0x80 == 0
+                  ? e
+                  : 0x81,
+        ),
+        e.optionCards.length,
+        ...e.optionCards,
+        e.name?.length ?? 0,
+        ...utf8.encode(e.name ?? ''),
+        e.color?.alpha ?? 0x80,
+        e.color?.red ?? 0x00,
+        e.color?.green ?? 0xFF,
+        e.color?.blue ?? 0xFF,
+      ];
+  void sendMessage(Socket socket, List<int> message, int messageType) {
+    socket.add([message.length, messageType, ...message]);
+  }
+
+  BoardRenderer renderBoard(bool flagPlacementMode) {
+    return BoardRenderer(
+      width: board!.width,
+      height: board!.height,
+      robots: flagPlacementMode
+          ? []
+          : players.where((e) => e.color != null).map((e) {
+              (int, int, int) moveresult = currentMoveDeltas[e] ?? (0, 0, 0);
+              return (
+                color: e.color!,
+                position: Offset(
+                  e.xPosition.toDouble() +
+                      moveresult.$1 * ((lastMovedPlayer?.movementT ?? 0) % 1),
+                  e.yPosition.toDouble() +
+                      moveresult.$2 * ((lastMovedPlayer?.movementT ?? 0) % 1),
+                ),
+                rotation: (e.rotation.index / 4) +
+                    moveresult.$3 / 4 * ((lastMovedPlayer?.movementT ?? 0) % 1)
+              );
+            }).toList(),
+      lasers: board!.lasers
+          .map((e) => (
+                laserCount: e.laserCount,
+                enabled: false,
+                positionX: e.xPosition,
+                positionY: e.yPosition,
+                rotation: e.rotation.index / 4
+              ))
+          .toList(),
+      belts: board!.belts
+          .map((e) => (
+                t: (beltT1 + (e.express ? beltT2 : 0)) % 1,
+                positionX: e.positionX,
+                positionY: e.positionY,
+                express: e.express,
+                rotation: e.rotation.index / 4,
+                type: e.type
+              ))
+          .toList(),
+      gears: board!.gears
+          .map((e) => (
+                rotation: gearT / 4 * (e.clockwise ? 1 : -1),
+                positionX: e.positionX,
+                positionY: e.positionY,
+                clockwise: e.clockwise,
+              ))
+          .toList(),
+      wrenches: board!.wrenches,
+      flags: board!.flags,
+      walls: const [],
+      draggedTo: flagPlacementMode
+          ? (int x, int y, Object? value) {
+              setState(() {
+                if (value is! int) {
+                  (int, int, {int number}) pos =
+                      value as (int, int, {int number});
+                  board!.flags.removeWhere(
+                      (({int number, int positionX, int positionY}) flag) {
+                    return flag.positionX == pos.$1 && flag.positionY == pos.$2;
+                  });
+                  value = pos.number;
+                }
+                board!.flags
+                    .add((number: value as int, positionX: x, positionY: y));
+              });
+            }
+          : (x, y, v) {
+              throw StateError('unreachable');
+            },
+      flagsDraggable: flagPlacementMode,
+    );
+  }
+
+  int drawProgramCard() {
+    if (programCards.isEmpty) {
+      programCards = allProgramCards.toList()
+        ..removeWhere((e) => players.any((f) =>
+            f.programCardHand.any((g) => g % 0x80 == e) ||
+            f.programCards.any((g) => g != null && g % 0x80 == e)))
+        ..shuffle();
+    }
+    return programCards.removeLast();
+  }
+
+  void startProgrammingPhase() {
+    for (Player player in players) {
+      if (!player.active()) continue;
+      player.submittedProgramCards = false;
+      player.programCardHand = [];
+      List<int> cards = List.generate(9 - player.damage, (i) {
+        int pc = drawProgramCard();
+        player.programCardHand.add(pc);
+        return pc;
+      });
+      sendMessage(player.socket, [cards.length, ...cards], 2);
+    }
+  }
+
+  bool inRunPhase = false;
+  int registerPhase = 1;
+  double beltT1 = 0;
+  double beltT2 = 0;
+  double gearT = 0;
+  double pusherT = 0;
+  double laserT = 0;
+  void startRunPhase() {
+    inRunPhase = true;
+    registerPhase = 1;
+    for (Player player in players) {
+      player.movementT = 0;
+    }
+    beltT1 = 0;
+    beltT2 = 0;
+    gearT = 0;
+    pusherT = 0;
+    laserT = 0;
+    setState(() {
+      for (Player player in players) {
+        if (player.active()) {
+          player.programCards[registerPhase - 1] =
+              player.programCards[registerPhase - 1]! % 0x80;
+          resendPlayer(player);
+        }
+      }
+    });
+  }
+
+  void tick(duration) {
+    if (inRunPhase) {
+      setState(() {
+        for (Player player in players.toList()
+          ..sort(
+            (a, b) => a.programCards[registerPhase - 1]!
+                .compareTo(b.programCards[registerPhase - 1]!),
+          )) {
+          if (!player.active()) continue;
+          if (player.movementT < 1) {
+            if (player.movementT == 0) {
+              currentMoveDeltas = player.getMovementResult(
+                  registerPhase, players.where((e) => e.active()));
+              lastMovedPlayer = player;
+            }
+            player.movementT += 1 / 128;
+            if (player.movementT >= 1) {
+              player.move(currentMoveDeltas);
+              if (player.xPosition < 0 ||
+                  player.xPosition >= board!.width ||
+                  player.yPosition < 0 ||
+                  player.yPosition >= board!.height) {
+                player.die();
+                resendPlayer(player);
+              }
+            }
+            return;
+          }
+        }
+        if (beltT1 < 1 && board!.belts.isNotEmpty) {
+          beltT1 += 1 / 128;
+          return;
+        }
+        if (beltT2 < 1 && board!.belts.any((e) => e.express)) {
+          beltT2 += 1 / 128;
+          return;
+        }
+        if (gearT < 1 && board!.gears.isNotEmpty) {
+          gearT += 1 / 128;
+          return;
+        }
+        if (pusherT < 1 &&
+            board!.pushers.any((e) => e.even == registerPhase.isEven)) {
+          pusherT += 1 / 128;
+          return;
+        }
+        if (laserT < 1) {
+          laserT += 1 / 128;
+          return;
+        }
+        registerPhase++;
+        beltT1 = 0;
+        beltT2 = 0;
+        gearT = 0;
+        pusherT = 0;
+        laserT = 0;
+        for (Player player in players) {
+          player.movementT = 0;
+          if (player.active() && registerPhase <= 5) {
+            player.programCards[registerPhase - 1] =
+                player.programCards[registerPhase - 1]! % 0x80;
+          }
+          if (player.active()) {
+            if (board!.flags.any((e) =>
+                player.xPosition == e.positionX &&
+                player.yPosition == e.positionY &&
+                e.number - 1 == player.currentFlag)) {
+              player.archiveMarkerPositionX = player.xPosition;
+              player.archiveMarkerPositionY = player.yPosition;
+              player.currentFlag += 1;
+              if (player.currentFlag == board!.flags.length) {
+                winner = player;
+              }
+            }
+            resendPlayer(player);
+          }
+        }
+        if (registerPhase > 5) {
+          registerPhase = 1;
+          for (Player player in players) {
+            player.programCardHand = [];
+            player.programCards[0] = null;
+            player.programCards[1] = null;
+            player.programCards[2] = null;
+            player.programCards[3] = null;
+            player.programCards[4] = null;
+            if(player.dead) {
+              player.xPosition = player.archiveMarkerPositionX;
+              player.yPosition = player.archiveMarkerPositionY;
+            }
+            player.dead = false;
+            resendPlayer(player);
+          }
+          inRunPhase = false;
+          startProgrammingPhase();
+          return;
+        }
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+    if (board == null) return const Placeholder();
+    if (!gameStarted) {
+      return Row(
+        children: [
+          DragTarget(
+            builder: (BuildContext context, List<Object?> candidateData,
+                List<dynamic> rejectedData) {
+              return Draggable(
+                data: board!.flags.length + 1,
+                feedback: FlagWidget(
+                  cellSize: 200,
+                  number: board!.flags.length + 1,
+                ),
+                child: FlagWidget(
+                  cellSize: 200,
+                  number: board!.flags.length + 1,
+                ),
+              );
+            },
+            onAcceptWithDetails: (details) {
+              if (details.data is (int, int, {int number})) {
+                setState(() {
+                  (int, int, {int number}) pos =
+                      details.data as (int, int, {int number});
+                  board!.flags.removeWhere(
+                      (({int number, int positionX, int positionY}) flag) {
+                    return flag.positionX == pos.$1 && flag.positionY == pos.$2;
+                  });
+                });
+              }
+            },
+          ),
+          renderBoard(true),
+          OutlinedButton(
+            style: ButtonStyle(
+                foregroundColor:
+                    WidgetStateColor.resolveWith((arg) => Colors.white)),
+            onPressed: () {
+              setState(() {
+                int index = 0;
+                while (index < players.length) {
+                  players[index].xPosition = board!.spawnPositions[index].$1;
+                  players[index].yPosition = board!.spawnPositions[index].$2;
+                  index++;
+                }
+                gameStarted = true;
+                startProgrammingPhase();
+              });
+            },
+            child: const Text(
+              'Start game',
+              style: TextStyle(fontSize: 50),
+            ),
+          )
+        ],
+      );
+    }
+    if (winner != null) {
+      return Center(
+        child: Text(
+          '${winner!.name} won!',
+          style: TextStyle(
+              fontSize: 50,
+              color: winner!.color,
+              decoration: TextDecoration.none),
+        ),
+      );
+    }
+    return renderBoard(false);
+  }
+}
+
+class BoilerplateDialog extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const BoilerplateDialog(
+      {super.key, required this.title, required this.children});
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
+            Text(title),
+            const SizedBox(height: 15),
+            ...children,
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
