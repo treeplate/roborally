@@ -9,11 +9,11 @@ import 'packetbuffer.dart';
 import 'players.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(MaterialApp(home: Container(color: Colors.brown[400], child: const MyHomePage())),);
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class PhoneEmulator extends StatelessWidget {
+  const PhoneEmulator({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +57,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   String currentName = '';
   List<Player>? players;
   late TabController controller = TabController(length: 0, vsync: this);
+  ScrollController scrolltroler = ScrollController();
 
   @override
   void initState() {
@@ -447,6 +448,16 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           onAcceptWithDetails: (details) {
                             if (programCardsPlaced[i] != null) return;
                             if (!programCardHand!.remove(details.data as int)) {
+                              setState(() {
+                                sendMessage([
+                                  programCardsPlaced
+                                      .indexOf(details.data as int)
+                                ], 1);
+                                sendMessage([i, details.data as int], 0);
+                                programCardsPlaced[programCardsPlaced
+                                    .indexOf(details.data as int)] = null;
+                                programCardsPlaced[i] = details.data as int;
+                              });
                               return;
                             }
                             setState(() {
@@ -460,31 +471,37 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 ),
                 SizedBox(
                   height: 100,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      for (int i = 0; i < programCardHand!.length; i++)
-                        DragTarget(
-                          builder: (context, accepted, rejected) {
-                            return Draggable(
-                              feedback: ProgramCardWidget(programCardHand![i]),
-                              data: programCardHand![i],
-                              childWhenDragging: const ProgramCardWidget(0x80),
-                              child: ProgramCardWidget(programCardHand![i]),
-                            );
-                          },
-                          onAcceptWithDetails: (details) {
-                            int index =
-                                programCardsPlaced.indexOf(details.data as int);
-                            if (index == -1) return;
-                            setState(() {
-                              programCardsPlaced[index] = null;
-                              programCardHand!.add(details.data as int);
-                            });
-                            sendMessage([index], 1);
-                          },
-                        ),
-                    ],
+                  child: Scrollbar(
+                    controller: scrolltroler,
+                    child: ListView(
+                      controller: scrolltroler,
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (int i = 0; i < programCardHand!.length; i++)
+                          DragTarget(
+                            builder: (context, accepted, rejected) {
+                              return Draggable(
+                                feedback:
+                                    ProgramCardWidget(programCardHand![i]),
+                                data: programCardHand![i],
+                                childWhenDragging:
+                                    const ProgramCardWidget(0x80),
+                                child: ProgramCardWidget(programCardHand![i]),
+                              );
+                            },
+                            onAcceptWithDetails: (details) {
+                              int index = programCardsPlaced
+                                  .indexOf(details.data as int);
+                              if (index == -1) return;
+                              setState(() {
+                                programCardsPlaced[index] = null;
+                                programCardHand!.add(details.data as int);
+                              });
+                              sendMessage([index], 1);
+                            },
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ],

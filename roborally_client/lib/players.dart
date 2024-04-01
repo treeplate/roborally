@@ -209,24 +209,18 @@ class ProgramCardWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (card) {
       case 0x80:
-        return Padding(
-          padding: const EdgeInsets.all(2.0),
-          child: DottedBorder(
-            child: const SizedBox(
-              width: 60,
-              height: 100,
-            ),
+        return DottedBorder(
+          child: const SizedBox(
+            width: 60,
+            height: 100,
           ),
         );
       case 0x81:
-        return Padding(
-          padding: const EdgeInsets.all(2.0),
-          child: DottedBorder(
-            child: Container(
-              width: 60,
-              height: 100,
-              color: Colors.amber,
-            ),
+        return DottedBorder(
+          child: Container(
+            width: 60,
+            height: 100,
+            color: Colors.amber,
           ),
         );
       default:
