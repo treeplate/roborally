@@ -115,7 +115,7 @@ class Player {
       this: (xDelta, yDelta, rotationDelta)
     };
     for (Player player in allActivePlayers) {
-      if(player == this) continue;
+      if (player == this) continue;
       if (player.yPosition == yPosition &&
           player.xPosition < xPosition &&
           player.xPosition >= xPosition + xDelta) {
@@ -310,68 +310,72 @@ class _MyHomePageState extends State<MyHomePage>
                     player = newPlayer(player, packets, nameLength, socket);
                     return;
                   }
-                  currentPacketLength ??= packets.readUint8();
-                  if (packets.available >= currentPacketLength! + 1) {
-                    currentPacketLength = null;
-                    int messageType = packets.readUint8();
-                    switch (messageType) {
-                      case 0:
-                        if (player.submittedProgramCards) {
-                          print('0.a');
-                          return;
-                        }
-                        int index = packets.readUint8();
-                        int programCard = packets.readUint8();
-                        if (index > 4) {
-                          print('0.b');
-                          return;
-                        }
-                        if (!player.programCardHand.contains(programCard)) {
-                          print('0.c');
-                          return;
-                        }
-                        player.programCardHand.remove(programCard);
-                        player.programCards[index] = programCard | 0x80;
-                        resendPlayer(player);
-                      case 1:
-                        if (player.submittedProgramCards) {
-                          print('1.a');
-                          return;
-                        }
-                        int index = packets.readUint8();
-                        if (index > 4) {
-                          print('1.b');
-                          return;
-                        }
-                        int? programCard = player.programCards[index];
-                        if (programCard == null) {
-                          print('1.c');
-                          return;
-                        }
-                        if (programCard & 0x80 == 0) {
-                          print('1.d');
-                          return;
-                        }
-                        player.programCardHand.add(programCard % 0x80);
-                        player.programCards[index] = null;
-                        resendPlayer(player);
-                      case 2:
-                        if (player.submittedProgramCards) {
-                          print('2.a');
-                          return;
-                        }
-                        if (player.programCards.any((e) => e == null)) {
-                          print('2.b');
-                          return;
-                        }
-                        player.programCardHand = [];
-                        player.submittedProgramCards = true;
-                        if (players
-                            .every((player) => player.submittedProgramCards)) {
-                          startRunPhase();
-                        }
-                      default:
-                        packets.readUint8List(currentPacketLength!);
+                  while (packets.available >= 1) {
+                    currentPacketLength ??= packets.readUint8();
+                    if (packets.available >= currentPacketLength! + 1) {
+                      currentPacketLength = null;
+                      int messageType = packets.readUint8();
+                      switch (messageType) {
+                        case 0:
+                          if (player.submittedProgramCards) {
+                            print('0.a');
+                            return;
+                          }
+                          int index = packets.readUint8();
+                          int programCard = packets.readUint8();
+                          if (index > 4) {
+                            print('0.b');
+                            return;
+                          }
+                          if (!player.programCardHand.contains(programCard)) {
+                            print('0.c');
+                            return;
+                          }
+                          player.programCardHand.remove(programCard);
+                          player.programCards[index] = programCard | 0x80;
+                          resendPlayer(player);
+                        case 1:
+                          if (player.submittedProgramCards) {
+                            print('1.a');
+                            return;
+                          }
+                          int index = packets.readUint8();
+                          if (index > 4) {
+                            print('1.b');
+                            return;
+                          }
+                          int? programCard = player.programCards[index];
+                          if (programCard == null) {
+                            print('1.c');
+                            return;
+                          }
+                          if (programCard & 0x80 == 0) {
+                            print('1.d');
+                            return;
+                          }
+                          player.programCardHand.add(programCard % 0x80);
+                          player.programCards[index] = null;
+                          resendPlayer(player);
+                        case 2:
+                          if (player.submittedProgramCards) {
+                            print('2.a');
+                            return;
+                          }
+                          if (player.programCards.any((e) => e == null)) {
+                            print('2.b');
+                            return;
+                          }
+                          player.programCardHand = [];
+                          player.submittedProgramCards = true;
+                          if (players.every(
+                              (player) => player.submittedProgramCards)) {
+                            startRunPhase();
+                          }
+                        default:
+                          packets.readUint8List(currentPacketLength!);
+                      }
+                    } else {
+                      break;
                     }
                   }
                 },
@@ -702,7 +706,7 @@ class _MyHomePageState extends State<MyHomePage>
             player.programCards[2] = null;
             player.programCards[3] = null;
             player.programCards[4] = null;
-            if(player.dead) {
+            if (player.dead) {
               player.xPosition = player.archiveMarkerPositionX;
               player.yPosition = player.archiveMarkerPositionY;
             }
