@@ -60,7 +60,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   @override
   void initState() {
-    rootBundle.loadString('../servers.cfg').then((value) {
+    rootBundle.loadString('servers.cfg').then((value) {
       setState(() {
         servers = value.split('\n').map((e) {
           List<String> parts = e.split(' ').toList();
@@ -68,10 +68,11 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         }).toList();
       });
     });
-    rootBundle.loadString('../program_cards.txt').then((value) {
+    rootBundle.loadString('program_cards.txt').then((value) {
       setState(() {
         programCards = value.split('\n').map((e) {
           List<String> parts = e.split(' ').toList();
+          print('MOO (${parts[1].length}) "${parts[1]}"\nMEOW ${ProgramCardType.values.map((e) => e.name)}');
           return ProgramCardData(
             int.parse(parts[0]),
             ProgramCardType.values.singleWhere((e) => e.name == parts[1]),
