@@ -11,15 +11,11 @@ import 'players.dart';
 void main() {
   runApp(
     MaterialApp(
-<<<<<<< HEAD
       home: Container(
         color: Colors.brown[400],
         child: const MyHomePage(),
       ),
     ),
-=======
-        home: Container(color: Colors.brown[400], child: const MyHomePage())),
->>>>>>> ui fixes
   );
 }
 
