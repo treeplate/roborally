@@ -3,12 +3,13 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 typedef AnimatedRobotState = ({
+  bool laserEnabled,
   Offset position,
   Color color,
   double rotation
   /*0=up, .25=right, etc*/
 });
-typedef AnimatedLaserState = ({
+typedef AnimatedLaserEmitterState = ({
   bool enabled,
   int positionX,
   int positionY,
@@ -38,26 +39,30 @@ typedef Wrench = ({int positionX, int positionY, bool hammer});
 typedef Flag = ({int positionX, int positionY, int number});
 typedef ArchiveMarkerDisplay = ({int positionX, int positionY, Color color});
 typedef Wall = ({int positionX, int positionY, bool vertical, bool toporleft});
+typedef Laser = ({int startPosX, int startPosY, double width, double height});
 
 class BoardRenderer extends StatelessWidget {
-  const BoardRenderer(
-      {super.key,
-      required this.width,
-      required this.height,
-      required this.robots,
-      required this.lasers,
-      required this.belts,
-      required this.gears,
-      required this.wrenches,
-      required this.flags,
-      required this.walls,
-      required this.draggedTo,
-      required this.flagsDraggable});
+  const BoardRenderer({
+    super.key,
+    required this.width,
+    required this.height,
+    required this.robots,
+    required this.laserEmitters,
+    required this.belts,
+    required this.gears,
+    required this.wrenches,
+    required this.flags,
+    required this.walls,
+    required this.draggedTo,
+    required this.flagsDraggable,
+    required this.lasers,
+  });
 
   final int width;
   final int height;
   final List<AnimatedRobotState> robots;
-  final List<AnimatedLaserState> lasers;
+  final List<AnimatedLaserEmitterState> laserEmitters;
+  final List<Laser> lasers;
   final List<AnimatedBeltState> belts;
   final List<AnimatedGearState> gears;
   final List<Wrench> wrenches;
@@ -148,11 +153,10 @@ class BoardRenderer extends StatelessWidget {
                     ],
                   )
                   .expand((e) => e),
-                  
               ...robots.map(
                 (e) => Positioned(
-                    top: e.position.dy * cellSize,
-                    left: e.position.dx * cellSize,
+                  top: e.position.dy * cellSize,
+                  left: e.position.dx * cellSize,
                   child: Transform.rotate(
                     angle: pi * 2 * e.rotation,
                     child: ColorFiltered(
@@ -168,6 +172,15 @@ class BoardRenderer extends StatelessWidget {
                   ),
                 ),
               ),
+              ...lasers.map((e) => Positioned(
+                    top: e.startPosY * cellSize + cellSize / 2,
+                    left: e.startPosX * cellSize + cellSize / 2,
+                    child: Container(
+                      color: Colors.red,
+                      height: e.height * cellSize,
+                      width: e.width * cellSize,
+                    ),
+                  )),
             ],
           ),
         ),

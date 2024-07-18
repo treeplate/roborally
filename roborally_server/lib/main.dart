@@ -7,7 +7,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:roborally_server/board_renderer.dart';
+import 'board_renderer.dart';
 import 'packetbuffer.dart';
 
 void main() {
@@ -69,10 +69,10 @@ class Player {
   String? name;
   Color? color;
   Rotation rotation = Rotation.up;
-  late int xPosition;
-  late int yPosition;
-  late int archiveMarkerPositionX = xPosition;
-  late int archiveMarkerPositionY = yPosition;
+  int? xPosition;
+  int? yPosition;
+  late int? archiveMarkerPositionX = xPosition!;
+  late int? archiveMarkerPositionY = yPosition!;
   int currentFlag = 0;
   bool dead = false;
 
@@ -116,25 +116,25 @@ class Player {
     };
     for (Player player in allActivePlayers) {
       if (player == this) continue;
-      if (player.yPosition == yPosition &&
-          player.xPosition < xPosition &&
-          player.xPosition >= xPosition + xDelta) {
-        deltas[player] = (xPosition + xDelta - 1 - player.xPosition, 0, 0);
+      if (player.yPosition == yPosition! &&
+          player.xPosition! < xPosition! &&
+          player.xPosition! >= xPosition! + xDelta) {
+        deltas[player] = (xPosition! + xDelta - 1 - player.xPosition!, 0, 0);
       }
-      if (player.yPosition == yPosition &&
-          player.xPosition > xPosition &&
-          player.xPosition <= xPosition + xDelta) {
-        deltas[player] = (xPosition + xDelta + 1 - player.xPosition, 0, 0);
+      if (player.yPosition == yPosition! &&
+          player.xPosition! > xPosition! &&
+          player.xPosition! <= xPosition! + xDelta) {
+        deltas[player] = (xPosition! + xDelta + 1 - player.xPosition!, 0, 0);
       }
-      if (player.xPosition == xPosition &&
-          player.yPosition < yPosition &&
-          player.yPosition >= yPosition + yDelta) {
-        deltas[player] = (0, yPosition + yDelta - 1 - player.yPosition, 0);
+      if (player.xPosition == xPosition! &&
+          player.yPosition! < yPosition! &&
+          player.yPosition! >= yPosition! + yDelta) {
+        deltas[player] = (0, yPosition! + yDelta - 1 - player.yPosition!, 0);
       }
-      if (player.xPosition == xPosition &&
-          player.yPosition > yPosition &&
-          player.yPosition <= yPosition + yDelta) {
-        deltas[player] = (0, yPosition + yDelta + 1 - player.yPosition, 0);
+      if (player.xPosition == xPosition! &&
+          player.yPosition! > yPosition! &&
+          player.yPosition! <= yPosition! + yDelta) {
+        deltas[player] = (0, yPosition! + yDelta + 1 - player.yPosition!, 0);
       }
     }
     return deltas;
@@ -143,6 +143,7 @@ class Player {
   void die() {
     dead = true;
     life--;
+    damage = 2;
   }
 
   @override
@@ -161,8 +162,8 @@ class Player {
 
   void move(Map<Player, (int, int, int)> moveresult) {
     for (Player player in moveresult.keys) {
-      player.xPosition += moveresult[player]!.$1;
-      player.yPosition += moveresult[player]!.$2;
+      player.xPosition = player.xPosition! + moveresult[player]!.$1;
+      player.yPosition = player.yPosition! + moveresult[player]!.$2;
       player.rotation =
           Rotation.values[(player.rotation.index + moveresult[player]!.$3) % 4];
     }
@@ -180,13 +181,13 @@ class ProgramCardData {
 
 late List<ProgramCardData> programCardsData;
 
-class Laser {
+class LaserEmitter {
   final int xPosition;
   final int yPosition;
   final Rotation rotation;
   final int laserCount;
 
-  Laser(this.laserCount,
+  LaserEmitter(this.laserCount,
       {required this.xPosition,
       required this.yPosition,
       required this.rotation});
@@ -230,7 +231,7 @@ class Pusher {
 class Board {
   final int width;
   final int height;
-  final List<Laser> lasers;
+  final List<LaserEmitter> laserEmitters;
   final List<Belt> belts;
   final List<Gear> gears;
   final List<Pusher> pushers;
@@ -241,7 +242,7 @@ class Board {
   Board(this.spawnPositions,
       {required this.width,
       required this.height,
-      required this.lasers,
+      required this.laserEmitters,
       required this.belts,
       required this.pushers,
       required this.gears,
@@ -256,7 +257,7 @@ class _MyHomePageState extends State<MyHomePage>
     [(2, 2), (4, 4)],
     width: 5,
     height: 5,
-    lasers: [],
+    laserEmitters: [],
     belts: [],
     gears: [],
     wrenches: [],
@@ -269,6 +270,7 @@ class _MyHomePageState extends State<MyHomePage>
   Random random = Random();
   Player? lastMovedPlayer;
   Map<Player, (int, int, int)> currentMoveDeltas = {};
+  List<Laser> lasers = [];
 
   @override
   void initState() {
@@ -303,6 +305,7 @@ class _MyHomePageState extends State<MyHomePage>
               int? currentPacketLength;
               socket.listen(
                 (Uint8List event) {
+                  print(event);
                   packets.add(event);
                   nameLength ??= packets.readUint8();
                   if (player.color == null &&
@@ -502,18 +505,19 @@ class _MyHomePageState extends State<MyHomePage>
           : players.where((e) => e.color != null).map((e) {
               (int, int, int) moveresult = currentMoveDeltas[e] ?? (0, 0, 0);
               return (
+                laserEnabled: laserT > 0 && laserT < 1,
                 color: e.color!,
                 position: Offset(
-                  e.xPosition.toDouble() +
+                  e.xPosition!.toDouble() +
                       moveresult.$1 * ((lastMovedPlayer?.movementT ?? 0) % 1),
-                  e.yPosition.toDouble() +
+                  e.yPosition!.toDouble() +
                       moveresult.$2 * ((lastMovedPlayer?.movementT ?? 0) % 1),
                 ),
                 rotation: (e.rotation.index / 4) +
                     moveresult.$3 / 4 * ((lastMovedPlayer?.movementT ?? 0) % 1)
               );
             }).toList(),
-      lasers: board!.lasers
+      laserEmitters: board!.laserEmitters
           .map((e) => (
                 laserCount: e.laserCount,
                 enabled: false,
@@ -563,6 +567,7 @@ class _MyHomePageState extends State<MyHomePage>
               throw StateError('unreachable');
             },
       flagsDraggable: flagPlacementMode,
+      lasers: lasers,
     );
   }
 
@@ -638,10 +643,10 @@ class _MyHomePageState extends State<MyHomePage>
             player.movementT += 1 / 128;
             if (player.movementT >= 1) {
               player.move(currentMoveDeltas);
-              if (player.xPosition < 0 ||
-                  player.xPosition >= board!.width ||
-                  player.yPosition < 0 ||
-                  player.yPosition >= board!.height) {
+              if (player.xPosition! < 0 ||
+                  player.xPosition! >= board!.width ||
+                  player.yPosition! < 0 ||
+                  player.yPosition! >= board!.height) {
                 player.die();
                 resendPlayer(player);
               }
@@ -667,7 +672,121 @@ class _MyHomePageState extends State<MyHomePage>
           return;
         }
         if (laserT < 1) {
+          if (laserT == 0) {
+            for (Player player in players) {
+              if (!player.active()) continue;
+              int startPosX;
+              int startPosY;
+              double width = 0;
+              double height = 0;
+              if (player.rotation == Rotation.right ||
+                  player.rotation == Rotation.down) {
+                startPosX = player.xPosition!;
+                startPosY = player.yPosition!;
+                if (player.rotation == Rotation.right) {
+                  height = .1;
+                  int currentX = startPosX;
+                  while (true) {
+                    if (currentX >= board!.width) break;
+                    currentX++;
+                    width++;
+                    if (players.any((e) =>
+                        e.xPosition == currentX && e.yPosition == startPosY)) {
+                      for (Player p in players.where((e) =>
+                          e.xPosition == currentX &&
+                          e.yPosition == startPosY)) {
+                        p.damage++;
+                        if (p.damage == 10) {
+                          p.die();
+                        }
+                        resendPlayer(p);
+                      }
+                      break;
+                    }
+                  }
+                } else {
+                  width = .1;
+                  int currentY = startPosY;
+                  while (true) {
+                    if (currentY >= board!.width) break;
+                    currentY++;
+                    height++;
+                    if (players.any((e) =>
+                        e.xPosition == startPosX && e.yPosition == currentY)) {
+                      for (Player p in players.where((e) =>
+                          e.xPosition == startPosX &&
+                          e.yPosition == currentY)) {
+                        p.damage++;
+                        if (p.damage == 10) {
+                          p.die();
+                        }
+                        resendPlayer(p);
+                      }
+                      break;
+                    }
+                  }
+                }
+              } else {
+                int endPosX = player.xPosition!;
+                int endPosY = player.yPosition!;
+                if (player.rotation == Rotation.left) {
+                  height = .1;
+                  int currentX = endPosX;
+                  while (true) {
+                    if (currentX < 0) break;
+                    currentX--;
+                    width++;
+                    if (players.any((e) =>
+                        e.xPosition == currentX && e.yPosition == endPosY)) {
+                      for (Player p in players.where((e) =>
+                          e.xPosition == currentX && e.yPosition == endPosY)) {
+                        p.damage++;
+                        if (p.damage == 10) {
+                          p.die();
+                        }
+                        resendPlayer(p);
+                      }
+                      break;
+                    }
+                  }
+                } else {
+                  width = .1;
+                  int currentY = endPosY;
+                  while (true) {
+                    if (currentY < 0) break;
+                    currentY--;
+                    height++;
+                    if (players.any((e) =>
+                        e.xPosition == endPosX && e.yPosition == currentY)) {
+                      for (Player p in players.where((e) =>
+                          e.xPosition == endPosX && e.yPosition == currentY)) {
+                        if (!p.dead) {
+                          p.damage++;
+                        }
+                        if (p.damage == 10) {
+                          p.die();
+                        }
+                        resendPlayer(p);
+                      }
+                      break;
+                    }
+                  }
+                }
+                startPosY = (endPosY - height).round();
+                startPosX = (endPosX - width).round();
+              }
+              lasers.add((
+                startPosX: startPosX,
+                startPosY: startPosY,
+                width: width,
+                height: height
+              ));
+            }
+          }
           laserT += 1 / 128;
+          if (laserT >= 1) {
+            lasers = [];
+          }
           return;
         }
         registerPhase++;
@@ -685,13 +804,23 @@ class _MyHomePageState extends State<MyHomePage>
           if (player.active()) {
             if (board!.flags.any((e) =>
                 player.xPosition == e.positionX &&
-                player.yPosition == e.positionY &&
-                e.number - 1 == player.currentFlag)) {
+                player.yPosition == e.positionY)) {
+              if (player.damage >= 1) {
+                player.damage -= 1;
+              }
               player.archiveMarkerPositionX = player.xPosition;
               player.archiveMarkerPositionY = player.yPosition;
-              player.currentFlag += 1;
-              if (player.currentFlag == board!.flags.length) {
-                winner = player;
+              if (board!.flags
+                          .singleWhere((e) =>
+                              player.xPosition == e.positionX &&
+                              player.yPosition == e.positionY)
+                          .number -
+                      1 ==
+                  player.currentFlag) {
+                player.currentFlag += 1;
+                if (player.currentFlag == board!.flags.length) {
+                  winner = player;
+                }
               }
             }
             resendPlayer(player);
@@ -701,11 +830,11 @@ class _MyHomePageState extends State<MyHomePage>
           registerPhase = 1;
           for (Player player in players) {
             player.programCardHand = [];
-            player.programCards[0] = null;
-            player.programCards[1] = null;
-            player.programCards[2] = null;
-            player.programCards[3] = null;
-            player.programCards[4] = null;
+            int i = 0;
+            while (9 - player.damage > i && i < 5) {
+              player.programCards[i] = null;
+              i++;
+            }
             if (player.dead) {
               player.xPosition = player.archiveMarkerPositionX;
               player.yPosition = player.archiveMarkerPositionY;

@@ -9,7 +9,14 @@ import 'packetbuffer.dart';
 import 'players.dart';
 
 void main() {
-  runApp(MaterialApp(home: Container(color: Colors.brown[400], child: const MyHomePage())),);
+  runApp(
+    MaterialApp(
+      home: Container(
+        color: Colors.brown[400],
+        child: const MyHomePage(),
+      ),
+    ),
+  );
 }
 
 class PhoneEmulator extends StatelessWidget {
@@ -190,7 +197,15 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 int programCardCount = packets.readUint8();
                 programCardHand =
                     packets.readUint8List(programCardCount).toList();
-                programCardsPlaced = List.filled(5, null);
+                int i = 0;
+                var damage = players!
+                    .singleWhere((e) => e.color == currentSelectedColor)
+                    .damage
+                    .index;
+                while (9 - damage > i && i < 5) {
+                  programCardsPlaced[i] = null;
+                  i++;
+                }
               });
             default:
               connectionError(
@@ -388,11 +403,16 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
     if (players == null) {
       return const Center(
-          child: Text(
-        'Waiting for server...',
-        style: TextStyle(inherit: false, fontSize: 30),
-      ));
+        child: Text(
+          'Waiting for server...',
+          style: TextStyle(inherit: false, fontSize: 30),
+        ),
+      );
     }
+    int damage = players!
+        .singleWhere((e) => e.color == currentSelectedColor)
+        .damage
+        .index;
     return Row(
       children: [
         Expanded(
@@ -435,15 +455,19 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           builder: (context, accepted, rejected) {
                             return programCardsPlaced[i] == null
                                 ? const ProgramCardWidget(0x80)
-                                : Draggable(
-                                    feedback: ProgramCardWidget(
-                                        programCardsPlaced[i]!),
-                                    data: programCardsPlaced[i],
-                                    childWhenDragging:
-                                        const ProgramCardWidget(0x80),
-                                    child: ProgramCardWidget(
-                                        programCardsPlaced[i]!),
-                                  );
+                                : (9 - damage) > i
+                                    ? ProgramCardWidget(programCardsPlaced[i]!)
+                                    : Draggable(
+                                        feedback: ProgramCardWidget(
+                                          programCardsPlaced[i]!,
+                                        ),
+                                        data: programCardsPlaced[i],
+                                        childWhenDragging:
+                                            const ProgramCardWidget(0x80),
+                                        child: ProgramCardWidget(
+                                          programCardsPlaced[i]!,
+                                        ),
+                                      );
                           },
                           onAcceptWithDetails: (details) {
                             if (programCardsPlaced[i] != null) return;
