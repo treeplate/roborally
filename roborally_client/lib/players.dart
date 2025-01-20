@@ -44,7 +44,7 @@ class PlayerDataWidget extends StatelessWidget {
                 child: Text(
                   player.name,
                   style: TextStyle(
-                    color: Color(~player.color.value).withAlpha(255),
+                    color: Color(~player.color.toARGB32()).withAlpha(255),
                     inherit: false,
                     fontSize: 30,
                   ),
@@ -105,7 +105,7 @@ class PlayerDataWidget extends StatelessWidget {
                 decoration: ShapeDecoration(
                   color: player.powerDownStatus ==
                           PowerDownStatus.nextTurnPoweredDown
-                      ? Colors.red.withOpacity(.3)
+                      ? Colors.red.withValues(alpha: .3)
                       : Colors.red,
                   shape: StarBorder.polygon(
                     rotation: 360 / 16,
@@ -113,7 +113,7 @@ class PlayerDataWidget extends StatelessWidget {
                     side: BorderSide(
                         color: player.powerDownStatus ==
                                 PowerDownStatus.nextTurnPoweredDown
-                            ? Colors.yellow.withOpacity(.3)
+                            ? Colors.yellow.withValues(alpha: .3)
                             : Colors.yellow,
                         width: 3),
                   ),
@@ -123,7 +123,7 @@ class PlayerDataWidget extends StatelessWidget {
                     Icons.power_settings_new,
                     color: player.powerDownStatus ==
                             PowerDownStatus.nextTurnPoweredDown
-                        ? Colors.yellow.withOpacity(.3)
+                        ? Colors.yellow.withValues(alpha: .3)
                         : Colors.yellow,
                   ),
                 ),

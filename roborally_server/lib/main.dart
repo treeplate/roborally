@@ -271,11 +271,12 @@ class _MyHomePageState extends State<MyHomePage>
   Player? lastMovedPlayer;
   Map<Player, (int, int, int)> currentMoveDeltas = {};
   List<Laser> lasers = [];
+  bool tie = false;
 
   @override
   void initState() {
     createTicker(tick).start();
-    rootBundle.loadString('../program_cards.txt').then((v) {
+    rootBundle.loadString('program_cards.txt').then((v) {
       allProgramCards = List.generate(v.split('\n').length, (i) => i);
       programCards = allProgramCards.toList()..shuffle(random);
       programCardsData = v.split('\n').map((e) {
@@ -487,10 +488,10 @@ class _MyHomePageState extends State<MyHomePage>
         ...e.optionCards,
         e.name?.length ?? 0,
         ...utf8.encode(e.name ?? ''),
-        e.color?.alpha ?? 0x80,
-        e.color?.red ?? 0x00,
-        e.color?.green ?? 0xFF,
-        e.color?.blue ?? 0xFF,
+        e.color == null ? 0x80 : (e.color!.a*255).round(),
+        e.color == null ? 0x00 : (e.color!.r*255).round(),
+        e.color == null ? 0xFF : (e.color!.g*255).round(),
+        e.color == null ? 0xFF : (e.color!.b*255).round(),
       ];
   void sendMessage(Socket socket, List<int> message, int messageType) {
     socket.add([message.length, messageType, ...message]);
@@ -583,6 +584,9 @@ class _MyHomePageState extends State<MyHomePage>
   }
 
   void startProgrammingPhase() {
+    if (players.every((e) => !e.active())) {
+      tie = true;
+    }
     for (Player player in players) {
       if (!player.active()) continue;
       player.submittedProgramCards = false;
@@ -679,6 +683,8 @@ class _MyHomePageState extends State<MyHomePage>
               int startPosY;
               double width = 0;
               double height = 0;
+              print(
+                  'laser at ${player.xPosition},${player.yPosition} facing ${player.rotation}');
               if (player.rotation == Rotation.right ||
                   player.rotation == Rotation.down) {
                 startPosX = player.xPosition!;
@@ -690,12 +696,17 @@ class _MyHomePageState extends State<MyHomePage>
                     if (currentX >= board!.width) break;
                     currentX++;
                     width++;
+                    print('pew pew $currentX, $startPosY');
                     if (players.any((e) =>
                         e.xPosition == currentX && e.yPosition == startPosY)) {
                       for (Player p in players.where((e) =>
                           e.xPosition == currentX &&
                           e.yPosition == startPosY)) {
-                        p.damage++;
+                        print('hit player ${p.damage} ${p.dead}');
+                        if (!p.dead) {
+                          p.damage++;
+                        }
+                        print('new damage ${p.damage}');
                         if (p.damage == 10) {
                           p.die();
                         }
@@ -711,12 +722,17 @@ class _MyHomePageState extends State<MyHomePage>
                     if (currentY >= board!.width) break;
                     currentY++;
                     height++;
+                    print('pew pew $startPosX, $currentY');
                     if (players.any((e) =>
                         e.xPosition == startPosX && e.yPosition == currentY)) {
                       for (Player p in players.where((e) =>
                           e.xPosition == startPosX &&
                           e.yPosition == currentY)) {
-                        p.damage++;
+                        print('hit player ${p.damage} ${p.dead}');
+                        if (!p.dead) {
+                          p.damage++;
+                        }
+                        print('new damage ${p.damage}');
                         if (p.damage == 10) {
                           p.die();
                         }
@@ -736,11 +752,16 @@ class _MyHomePageState extends State<MyHomePage>
                     if (currentX < 0) break;
                     currentX--;
                     width++;
+                    print('pew pew $currentX, $endPosY');
                     if (players.any((e) =>
                         e.xPosition == currentX && e.yPosition == endPosY)) {
                       for (Player p in players.where((e) =>
                           e.xPosition == currentX && e.yPosition == endPosY)) {
-                        p.damage++;
+                        print('hit player ${p.damage} ${p.dead}');
+                        if (!p.dead) {
+                          p.damage++;
+                        }
+                        print('new damage ${p.damage}');
                         if (p.damage == 10) {
                           p.die();
                         }
@@ -756,13 +777,16 @@ class _MyHomePageState extends State<MyHomePage>
                     if (currentY < 0) break;
                     currentY--;
                     height++;
+                    print('pew pew $endPosX, $currentY');
                     if (players.any((e) =>
                         e.xPosition == endPosX && e.yPosition == currentY)) {
                       for (Player p in players.where((e) =>
                           e.xPosition == endPosX && e.yPosition == currentY)) {
+                        print('hit player ${p.damage} ${p.dead}');
                         if (!p.dead) {
                           p.damage++;
                         }
+                        print('new damage ${p.damage}');
                         if (p.damage == 10) {
                           p.die();
                         }
@@ -895,6 +919,10 @@ class _MyHomePageState extends State<MyHomePage>
                 while (index < players.length) {
                   players[index].xPosition = board!.spawnPositions[index].$1;
                   players[index].yPosition = board!.spawnPositions[index].$2;
+                  players[index]
+                      .archiveMarkerPositionX; // player.xPosition will change during the game; this sets the archive marker to the starting position
+                  players[index]
+                      .archiveMarkerPositionY; // player.yPosition will change during the game; this sets the archive marker to the starting position
                   index++;
                 }
                 gameStarted = true;
@@ -917,6 +945,14 @@ class _MyHomePageState extends State<MyHomePage>
               fontSize: 50,
               color: winner!.color,
               decoration: TextDecoration.none),
+        ),
+      );
+    }
+    if (tie) {
+      return const Center(
+        child: Text(
+          'TIE',
+          style: TextStyle(fontSize: 50, decoration: TextDecoration.none),
         ),
       );
     }

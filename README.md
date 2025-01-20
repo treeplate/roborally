@@ -7,12 +7,13 @@ This is a game (based on [this board game](https://en.wikipedia.org/wiki/RoboRal
 1 tablet/laptop/desktop (the "server device")<br>
 
 ## Before the game
-Create a file called `servers.cfg` with each line following this format:
+Create a file called `servers.cfg` in `roborally_client` with each line following this format:
 ```
 <server ip> <server name>
 ```
 Server IP is the IP of the server device.<br>
 Server Name is what you want to call this server device.<br>
+When running the client, each line will be a server device you can connect to.
 <br>
 Install [Flutter](https://docs.flutter.dev/get-started) on a computer. 
 In the `roborally_client` folder, 

@@ -296,22 +296,25 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       });
                     },
                     onError: (error) {
-                      showDialog(
-                        context: context,
-                        builder: (context) {
-                          return BoilerplateDialog(
-                            title: 'Failed to connect to ${e.$2}',
-                            children: [
-                              Text('Error when connecting to ${e.$1}: $error'),
-                              TextButton(
-                                  onPressed: () {
-                                    Navigator.pop(context);
-                                  },
-                                  child: const Text('Return to start menu'))
-                            ],
-                          );
-                        },
-                      );
+                      if (context.mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (context) {
+                            return BoilerplateDialog(
+                              title: 'Failed to connect to ${e.$2}',
+                              children: [
+                                Text(
+                                    'Error when connecting to ${e.$1}: $error'),
+                                TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                    },
+                                    child: const Text('Return to start menu'))
+                              ],
+                            );
+                          },
+                        );
+                      }
                     },
                   );
                 },
@@ -321,7 +324,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       return Theme.of(context)
                           .colorScheme
                           .primary
-                          .withOpacity(0.5);
+                          .withValues(alpha: 0.5);
                     },
                   ),
                 ),
@@ -345,7 +348,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             child: Text(
               currentName,
               style: TextStyle(
-                color: Color(~currentSelectedColor.value).withAlpha(255),
+                color: Color(~currentSelectedColor.toARGB32()).withAlpha(255),
                 inherit: false,
                 fontSize: 30,
               ),
@@ -381,10 +384,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 [
                   utf8Name.length,
                   ...utf8Name,
-                  currentSelectedColor.alpha,
-                  currentSelectedColor.red,
-                  currentSelectedColor.green,
-                  currentSelectedColor.blue
+                  (currentSelectedColor.a * 255).round(),
+                  (currentSelectedColor.r * 255).round(),
+                  (currentSelectedColor.g * 255).round(),
+                  (currentSelectedColor.b * 255).round(),
                 ],
               );
               setState(() {
@@ -394,7 +397,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             style: ButtonStyle(
               backgroundColor: WidgetStateProperty.resolveWith<Color?>(
                 (Set<WidgetState> states) {
-                  return Theme.of(context).colorScheme.primary.withOpacity(0.5);
+                  return Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.5);
                 },
               ),
             ),
@@ -407,6 +413,14 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       return const Center(
         child: Text(
           'Waiting for server...',
+          style: TextStyle(inherit: false, fontSize: 30),
+        ),
+      );
+    }
+    if (players!.where((e) => e.color == currentSelectedColor).isEmpty) {
+      return const Center(
+        child: Text(
+          'Server error',
           style: TextStyle(inherit: false, fontSize: 30),
         ),
       );
@@ -457,7 +471,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           builder: (context, accepted, rejected) {
                             return programCardsPlaced[i] == null
                                 ? const ProgramCardWidget(0x80)
-                                : (9 - damage) > i
+                                : (9 - damage) <= i
                                     ? ProgramCardWidget(programCardsPlaced[i]!)
                                     : Draggable(
                                         feedback: ProgramCardWidget(

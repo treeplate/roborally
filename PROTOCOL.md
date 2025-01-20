@@ -42,7 +42,7 @@ This uses dart's [Socket](https://api.dart.dev/stable/3.3.0/dart-io/Socket-class
 `programCard` : `int8` - there are 5 `programCard`s, each one represents a program card slot in order from first register phase to last:
 - `0b1000_0001`: there is a program card there
 - `0b1000_0000`: there is not a program card there
-- anything else: there is a face-up program card there. The program cards are listed in order in [this file](program_cards.txt).
+- anything else: there is a face-up program card there. The program cards are listed in order in [this file](roborally_server/program_cards.txt).
 
 `optionCardCount` : `int8` - How many option cards this robot has. This number cannot be above 26, as there are only 26 option cards.<br>
 `optionCards` : `int8` x `optionCardCount` - For each option card, the index of the option card. These option cards are listed in order in [this file](roborally_client/option_cards.txt). This number cannot be above 25.<br>
