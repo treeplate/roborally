@@ -435,7 +435,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           child: TabBarView(
             controller: controller,
             children: [
-              ...players!.map(
+              ...players!.where((e) => e.color != currentSelectedColor).map(
                 (e) => PlayerDataWidget(e),
               ),
             ],
@@ -554,7 +554,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             ),
           )
         else
-          const Expanded(child: Placeholder()),
+          Expanded(
+            child: players == null
+                ? const CircularProgressIndicator()
+                : PlayerDataWidget(
+                    players!.singleWhere((e) => e.name == currentName),
+                  ),
+          ),
       ],
     );
   }
